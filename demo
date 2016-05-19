@@ -1,0 +1,179 @@
+/**
+     * 判断音频是否已经下载，如果没有下载的话就去下载，如果已经下载就去读文件
+     * @param url 音频的url
+     * @param imageView 
+     * @param progressBar
+     * @param anim 帧动画
+     * @param r 动画播放完后imageview的bg
+     */
+    private void playURL(String url, final ImageView imageView,final ProgressBar progressBar, final int anim, final int r) {
+        try {
+            File voiceFile = new File(DirectoryManager.getDirectory(DirectoryManager.DIR.TMP), TextUtil.md5(url));
+            if (!voiceFile.exists()) {
+            //如果没有音频文件就去下载 但为了界面的友好 设置一个loading动画，下载完成后把动画停掉 设置imageview的bg
+                progressBar.setVisibility(View.VISIBLE);
+                imageView.setVisibility(View.GONE);
+                downLoadAndCache(url, new IDownloadCompleted() {
+                    @Override
+                    public void onComplete(File file) {
+                        
+                        //监听到音频下载完成
+                         progressBar.setVisibility(View.GONE);
+                         imageView.setVisibility(View.VISIBLE);
+                        try {
+                            playFile(imageView, file, anim, r);
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                });
+                return;
+            }
+            playFile(imageView, voiceFile, anim, r);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+/**
+     * 对于音频 首次下载进行缓存 然后再去读文件
+     * @param uri
+     * @param listener 设置一个下载完成的监听
+     * @return
+     */
+    private void downLoadAndCache(final String uri, final IDownloadCompleted listener) {
+        //这里我使用音频的url的md5作为文件名，后面判断如果存在这个文件的话，就直接读取该文件
+        final String fileName = TextUtil.md5(uri);
+        
+        //需要将下面文件路径换成你自己的将要缓存文件路径
+        final File fileVoice = new File(DirectoryManager.getDirectory(DirectoryManager.DIR.TMP), fileName); 
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                OutputStream os = null;
+                InputStream is = null;
+                try {
+                    URL url = new URL(uri);
+                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                    is = conn.getInputStream();
+                    byte[] bytes = new byte[1024];
+                    int len;
+                    os = new FileOutputStream(fileVoice);
+                    while((len = is.read(bytes)) != -1) {
+                        os.write(bytes, 0, len);
+                    }
+                    
+                    //在这里音频文件下载结束，我们需要在UI线程里去通知监听器，并把下载完的音频传过去
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (listener != null) {
+                                listener.onComplete(fileVoice);
+                            }
+                        }
+                    });
+                } catch (MalformedURLException e) {
+                    e.printStackTrace();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                } finally {
+                    try {
+                        if (os != null) {
+                            os.close();
+                        }
+                        if (is != null) {
+                            is.close();
+                        }
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+        }).start();
+    }
+    
+    /**
+     * 播放音频文件
+     * @param imageView
+     * @param file
+     * @param anim
+     * @param r
+     * @throws IOException
+     */
+    private void playFile(final ImageView imageView, File file, final int anim, final int r) throws IOException{
+        mediaPlayer = new MediaPlayer();
+        if (file == null || !file.exists()) {
+            return;
+        }
+        if(mediaPlayer != null && mediaPlayer.isPlaying()){
+            mediaPlayer.stop();
+            strengthStopAnim();
+        }
+        mediaPlayer.reset();
+        mediaPlayer.setDataSource(file.getAbsolutePath());
+        mediaPlayer.prepareAsync();
+        final String textBefore = searchWordEt.getText().toString();
+        mediaPlayer.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
+            @Override
+            public void onPrepared(MediaPlayer mp) {
+                String textNow = searchWordEt.getText().toString();
+                if (textNow.equals(textBefore)) {
+                    frameAnim = (AnimationDrawable) getResources().getDrawable(anim);
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
+                        imageView.setBackground(frameAnim);
+                    } else {
+                        imageView.setBackgroundDrawable(frameAnim);
+                    }
+                    //播放动画
+                    startAnim(frameAnim);
+                    mediaPlayer.start();
+                    mediaPlayer.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
+                        @Override
+                        public void onCompletion(MediaPlayer mp) {
+                            endAnim(frameAnim, imageView, r);
+                        }
+                    });
+                }
+            }
+        });
+    }
+
+    /**
+     * 强行停止单词音频播放的动画，并停在动画的最后一帧上
+     */
+    private void strengthStopAnim() {
+        if (frameAnim != null && frameAnim.isRunning()) {
+            frameAnim.stop();
+            frameAnim.selectDrawable(2);
+        }
+    }
+
+     /**
+     * 开始播放帧动画
+     * @param frameAnim
+     */
+    private void startAnim(AnimationDrawable frameAnim){
+        if (frameAnim != null && !frameAnim.isRunning()){
+            frameAnim.start();
+        }
+    }
+    
+    /**
+     * 结束动画播放
+     * @param frameAnim
+     * @param im
+     * @param r
+     */
+    private void endAnim(AnimationDrawable frameAnim, ImageView im ,int r ){
+        if (frameAnim != null && frameAnim.isRunning()){
+            frameAnim.stop();
+            im.setBackgroundResource(r);
+        }
+    }
+    
+    /**
+     * 完成下载音频接口
+     */
+    private interface IDownloadCompleted {
+        void onComplete(File file);
+    }
